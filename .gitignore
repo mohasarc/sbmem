@@ -1,0 +1,5 @@
+app
+create_memory_sb
+destroy_memory_sb
+libsbmemlib.a
+sbmemlib.o
