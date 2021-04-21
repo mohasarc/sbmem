@@ -26,6 +26,15 @@
 void *pointerToSharedSegment = NULL;
 int sizeOfSharedSegment = 0;
 
+struct Head
+{
+    int is_alloc;
+    void* begin;
+    void* end;
+    int size;
+};
+
+
 /* Checks if the given number is a power of 2 */
 int is_pow2(int val)
 {
@@ -55,7 +64,7 @@ int sbmem_init(int segmentsize)
         errExit("An error occured while creating shared memory");
     }
 
-    int res = ftruncate(shm_fd, segmentsize);
+    int res = ftruncate(shm_fd, segmentsize + sizeof(int));
     if (res != 0)
     {
         errExit("An error occured while creating shared memory");
@@ -69,6 +78,19 @@ int sbmem_init(int segmentsize)
     }
 
     *sizeOfSegment = segmentsize;
+
+    struct Head *head = (struct Head *) mmap(0, sizeof(struct Head), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    head += sizeof(int);
+
+    if (head == MAP_FAILED)
+    {
+        errExit("An error occured mmapping shared memory");
+    }
+
+    head->is_alloc = 0;
+    head->begin = sizeof(int);
+    head->end = head->begin + segmentsize;
+    head->size = segmentsize;
 
     printf("sbmem init called"); // remove all printfs when you are submitting to us.
     return (0);
@@ -101,20 +123,60 @@ int sbmem_open()
     // Map the whole shared memory
     sizeOfSharedSegment = *sizeOfSegment;
     pointerToSharedSegment = mmap(0, sizeOfSharedSegment, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    pointerToSharedSegment += sizeof(int);
 
     if (pointerToSharedSegment == MAP_FAILED)
         errExit("An error occured mmapping shared memory");
-        
+
     return (0);
 }
 
 void *sbmem_alloc(int size)
 {
-    return (NULL);
+    size += sizeof(struct Head);
+
+    struct Head *tmpPointer = ((struct Head *) pointerToSharedSegment);
+    void *ptr = NULL;
+
+    while (tmpPointer->end < ((struct Head *)pointerToSharedSegment)->begin+sizeOfSharedSegment)
+    {
+        printf("Splitting? %d > %d \n", tmpPointer->size, size);
+
+        if (tmpPointer->size > size){
+            printf("Splitting because %d > %d \n", tmpPointer->size, size);
+            split_chunck(tmpPointer);
+        } else if (tmpPointer->is_alloc == 1) {
+            printf("Found size but was already allocated!\n");
+            tmpPointer = tmpPointer->end;
+        } else {
+            printf("Found an unallocated chunck \n");
+            tmpPointer->is_alloc = 1;
+            ptr = tmpPointer;
+            break;
+        }
+    }
+
+    printf("allocating at: %int", ptr);
+    
+    return (ptr);
 }
 
 void sbmem_free(void *p)
 {
+
+}
+
+void split_chunck(struct Head *chunc_begin){
+    struct Head *buddy_begin = (chunc_begin->end - chunc_begin->begin) / 2;
+    buddy_begin->begin = buddy_begin;
+    buddy_begin->end = chunc_begin->begin;
+    buddy_begin->is_alloc = 0;
+
+    chunc_begin->end = buddy_begin->begin;
+}
+
+void *find_buddy(void* buddy){
+
 }
 
 int sbmem_close()

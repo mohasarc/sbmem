@@ -16,12 +16,37 @@ int main()
     if (ret == -1)
         exit(1);
 
-    // p = sbmem_alloc(256); // allocate space to hold 1024 characters
-    // for (i = 0; i < 256; ++i)
-    //     p[i] = 'a'; // init all chars to ‘a’
-    // sbmem_free(p);
+    p = sbmem_alloc(16384); // allocate space to hold 1024 characters
+    for (i = 0; i < 16384; ++i)
+        p[i] = 'a'; // init all chars to ‘a’
 
-    // sbmem_close();
+    // for (i = 0; i < 16384; i++)
+    //     printf(" %c ", p[i]);
+
+    p = sbmem_alloc(16384); // allocate space to hold 1024 characters
+    for (i = 0; i < 16384; ++i)
+        p[i] = 'a'; // init all chars to ‘a’
+
+    // for (i = 0; i < 16384; i++)
+    //     printf(" %c ", p[i]);
+
+    p = sbmem_alloc(256); // allocate space to hold 1024 characters
+    for (i = 0; i < 256; ++i)
+        p[i] = 'a'; // init all chars to ‘a’
+
+    for (i = 0; i < 256; i++)
+        printf(" %c ", p[i]);
+
+    p = sbmem_alloc(256); // allocate space to hold 1024 characters
+    for (i = 0; i < 256; ++i)
+        p[i] = 'a'; // init all chars to ‘a’
+
+    for (i = 0; i < 256; i++)
+        printf(" %c ", p[i]);
+
+    sbmem_free(p);
+
+    sbmem_close();
 
     return (0);
 }
