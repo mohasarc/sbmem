@@ -23,6 +23,8 @@
 // Define semaphore(s)
 
 // Define your stuctures and variables.
+void *pointerToSharedSegment = NULL;
+int sizeOfSharedSegment = 0;
 
 /* Checks if the given number is a power of 2 */
 int is_pow2(int val)
@@ -36,12 +38,6 @@ int next_pow2(int val)
     int pos = ceil(log2(val));
     return pow(2, pos);
 }
-
-struct info
-{
-    int sizeOfSegment;
-    
-};
 
 
 int sbmem_init(int segmentsize)
@@ -65,6 +61,15 @@ int sbmem_init(int segmentsize)
         errExit("An error occured while creating shared memory");
     }
 
+    int *sizeOfSegment = (int *) mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    
+    if (sizeOfSegment == MAP_FAILED)
+    {
+        errExit("An error occured mmapping shared memory");
+    }
+
+    *sizeOfSegment = segmentsize;
+
     printf("sbmem init called"); // remove all printfs when you are submitting to us.
     return (0);
 }
@@ -81,7 +86,25 @@ int sbmem_remove()
 
 int sbmem_open()
 {
+    // Open shared memory
+    int shm_fd = shm_open(MBMEM_NAME, O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    
+    if (shm_fd == -1) 
+        errExit("An error occured while creating shared memory");
 
+    // Map and read the size information of shared memory
+    int *sizeOfSegment = (int *) mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+   
+    if (sizeOfSegment == MAP_FAILED)
+        errExit("An error occured mmapping shared memory");
+
+    // Map the whole shared memory
+    sizeOfSharedSegment = *sizeOfSegment;
+    pointerToSharedSegment = mmap(0, sizeOfSharedSegment, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+
+    if (pointerToSharedSegment == MAP_FAILED)
+        errExit("An error occured mmapping shared memory");
+        
     return (0);
 }
 
