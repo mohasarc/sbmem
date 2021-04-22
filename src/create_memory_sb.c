@@ -6,12 +6,17 @@
 
 #include "sbmem.h"
 
-int main()
+#define DEFAULT_SIZE 32768
+
+int main(int argc, char *argv[])
 {
+    int segment_size;
     
-    sbmem_init(32768); 
+    if (argc > 1)
+        segment_size = atoi(argv[1]);
+    else 
+        segment_size = DEFAULT_SIZE;
 
-    printf ("memory segment is created and initialized \n");
-
+    sbmem_init(segment_size); 
     return (0); 
 }
