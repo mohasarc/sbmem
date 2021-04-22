@@ -10,41 +10,36 @@ int main()
 {
     int i, ret;
     char *p;
+    char *q;
+    char *r;
+    char *s;
+    char *t;
+    char *u;
 
     printf("Calling sbmem_open\n");
     ret = sbmem_open();
     if (ret == -1)
         exit(1);
 
-    p = sbmem_alloc(16384); // allocate space to hold 1024 characters
-    for (i = 0; i < 16384; ++i)
-        p[i] = 'a'; // init all chars to ‘a’
+    p = sbmem_alloc(8192-16); // allocate space to hold 1024 characters
+    q = sbmem_alloc(4096-16); // allocate space to hold 1024 characters
+    sbmem_free(q);
+    p = sbmem_alloc(8192-16); // allocate space to hold 1024 characters
+    
+    r = sbmem_alloc(512-16); // allocate space to hold 1024 characters
 
-    // for (i = 0; i < 16384; i++)
-    //     printf(" %c ", p[i]);
+    s = sbmem_alloc(256-16); // allocate space to hold 1024 characters
 
-    p = sbmem_alloc(16384); // allocate space to hold 1024 characters
-    for (i = 0; i < 16384; ++i)
-        p[i] = 'a'; // init all chars to ‘a’
+    t = sbmem_alloc(256-16); // allocate space to hold 1024 characters
 
-    // for (i = 0; i < 16384; i++)
-    //     printf(" %c ", p[i]);
+    sbmem_free(s);
+    sbmem_free(t);
 
-    p = sbmem_alloc(256); // allocate space to hold 1024 characters
-    for (i = 0; i < 256; ++i)
-        p[i] = 'a'; // init all chars to ‘a’
-
-    for (i = 0; i < 256; i++)
-        printf(" %c ", p[i]);
-
-    p = sbmem_alloc(256); // allocate space to hold 1024 characters
-    for (i = 0; i < 256; ++i)
-        p[i] = 'a'; // init all chars to ‘a’
-
-    for (i = 0; i < 256; i++)
-        printf(" %c ", p[i]);
-
-    sbmem_free(p);
+    t = sbmem_alloc(512-16); // allocate space to hold 1024 characters
+    if (t == NULL){
+        printf("Could not allocate! \n");
+        exit(1);
+    }
 
     sbmem_close();
 

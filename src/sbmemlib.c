@@ -21,19 +21,19 @@
     } while (0);
 
 // Define semaphore(s)
+struct Head *find_buddy(struct Head *block);
 
 // Define your stuctures and variables.
-void *pointerToSharedSegment = NULL;
-int sizeOfSharedSegment = 0;
 
 struct Head
 {
     int is_alloc;
-    void* begin;
-    void* end;
     int size;
+    struct Head *next;
 };
 
+int *pointerToSharedSegment = NULL;
+int sizeOfSharedSegment = 0;
 
 /* Checks if the given number is a power of 2 */
 int is_pow2(int val)
@@ -79,18 +79,19 @@ int sbmem_init(int segmentsize)
 
     *sizeOfSegment = segmentsize;
 
-    struct Head *head = (struct Head *) mmap(0, sizeof(struct Head), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    head += sizeof(int);
+    int *head = (int *) mmap(0, sizeof(struct Head) + sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 
     if (head == MAP_FAILED)
     {
         errExit("An error occured mmapping shared memory");
     }
 
-    head->is_alloc = 0;
-    head->begin = sizeof(int);
-    head->end = head->begin + segmentsize;
-    head->size = segmentsize;
+    head += 1;
+    ((struct Head *)head)->is_alloc = 0;
+    ((struct Head *)head)->size = segmentsize;
+    ((struct Head *)head)->next = NULL;
+
+    // printf("head information set to: %d, %d \n", head->is_alloc, head->size);
 
     printf("sbmem init called"); // remove all printfs when you are submitting to us.
     return (0);
@@ -122,61 +123,136 @@ int sbmem_open()
 
     // Map the whole shared memory
     sizeOfSharedSegment = *sizeOfSegment;
-    pointerToSharedSegment = mmap(0, sizeOfSharedSegment, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    pointerToSharedSegment += sizeof(int);
+    pointerToSharedSegment = (int*) mmap(0, sizeOfSharedSegment + sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 
     if (pointerToSharedSegment == MAP_FAILED)
         errExit("An error occured mmapping shared memory");
 
+    printf("The whole shared block size: %d \n", *pointerToSharedSegment);
+    pointerToSharedSegment += 1;
+    printf("Block info: %d, %d \n",  ((struct Head*) pointerToSharedSegment)->is_alloc, ((struct Head*) pointerToSharedSegment)->size);
     return (0);
 }
 
 void *sbmem_alloc(int size)
-{
+{   
     size += sizeof(struct Head);
+    printf("Trying to allocate: %d\n", size);
 
     struct Head *tmpPointer = ((struct Head *) pointerToSharedSegment);
     void *ptr = NULL;
 
-    while (tmpPointer->end < ((struct Head *)pointerToSharedSegment)->begin+sizeOfSharedSegment)
+    do
     {
-        printf("Splitting? %d > %d \n", tmpPointer->size, size);
-
-        if (tmpPointer->size > size){
-            printf("Splitting because %d > %d \n", tmpPointer->size, size);
+        if ((tmpPointer->size/2) >= size && tmpPointer->is_alloc == 0){
             split_chunck(tmpPointer);
-        } else if (tmpPointer->is_alloc == 1) {
-            printf("Found size but was already allocated!\n");
-            tmpPointer = tmpPointer->end;
+        } else if (tmpPointer->is_alloc == 1 || tmpPointer->size < size) {
+            tmpPointer = tmpPointer->next;
         } else {
-            printf("Found an unallocated chunck \n");
             tmpPointer->is_alloc = 1;
-            ptr = tmpPointer;
+            ptr = tmpPointer + 1;
             break;
         }
-    }
+    } while (tmpPointer != NULL);
 
-    printf("allocating at: %int", ptr);
-    
+    print_memory();
     return (ptr);
 }
 
+/**
+ * 
+ */
 void sbmem_free(void *p)
 {
+    // printf("Frying P = %d of size %d \n", p, ((struct Head *)p)[-1].size);
+    struct Head *block = ((struct Head *)p)-1;
+    block->is_alloc = 0;
 
+    // Find buddy
+    struct Head *buddy = find_buddy(block);
+    if (buddy->is_alloc != 1 && buddy->size == block->size){
+        // Merge buddy
+        merge_buddies(buddy, block);
+    }
+    print_memory();
 }
 
-void split_chunck(struct Head *chunc_begin){
-    struct Head *buddy_begin = (chunc_begin->end - chunc_begin->begin) / 2;
-    buddy_begin->begin = buddy_begin;
-    buddy_begin->end = chunc_begin->begin;
+/**
+ * Finds the buddy of a given block
+ * A buddy: is a block of the same size of the given block, 
+ * where the two blocks were part of one larger block of 
+ * size 2^k+1 if the smaller blocks are of size 2^k
+ * @param block The block we want to find its buddy
+ */
+struct Head *find_buddy(struct Head *block){
+    int size_class = log2(block->size);
+
+    // if the address of the given block (the block of size 2^K) % 2^k+1 then its buddy is at: (current block's address) + 2^k
+    // else it is at (current block's address) - 2^k
+    if (((char *)block - (char *)pointerToSharedSegment) % (long)pow(2, size_class + 1) == 0){
+        return (struct Head *)((char *)block + block->size);
+    } else {
+        return (struct Head *)(char *)block - block->size;
+    }
+}
+
+/**
+ * Merges back two blocks that were already 
+ * one larger block (buddies).
+ * @param buddy1 The first block
+ * @param buddy2 The second block
+ */
+void merge_buddies(struct Head *buddy1, struct Head *buddy2){
+    int size_class = log2(buddy1->size);
+    struct Head *buddy_left;
+    struct Head *buddy_right;
+
+    if (((char *)buddy1 - (char *)pointerToSharedSegment) % (long)pow(2, size_class + 1) == 0){
+        buddy_left = buddy1;
+        buddy_right = buddy2;
+    } else {
+        buddy_left = buddy2;
+        buddy_right = buddy1;
+    }
+
+    buddy_left->next = buddy_right->next;
+    buddy_left->size += buddy_right->size;
+}
+
+void split_chunck(struct Head *left_chunck){
+    // printf("\n\nAT SPLIT\n\n");
+    // printf("Before splitting: size: %d, begin: %d, next, %d \n", left_chunck->size, left_chunck, left_chunck->next);
+
+    struct Head *buddy_begin = left_chunck + (left_chunck->size / 2)/sizeof(struct Head);
+    buddy_begin->size = left_chunck->size / 2;
     buddy_begin->is_alloc = 0;
+    buddy_begin->next = left_chunck->next;
 
-    chunc_begin->end = buddy_begin->begin;
+    left_chunck->size = left_chunck->size / 2;
+    left_chunck->next = buddy_begin;
+
+    // printf("After Splitting: \n");
+    // printf("Left : size: %d, begin: %d, next, %d \n", left_chunck->size, left_chunck, left_chunck->next);
+    // printf("Right: size: %d, begin: %d, next, %d \n\n", buddy_begin->size, buddy_begin, buddy_begin->next);
 }
 
-void *find_buddy(void* buddy){
+void print_memory(){
+    struct Head *mem_pointer = (struct Head *) pointerToSharedSegment;
+    
+    printf("---------------------------\n");
+    printf("     MEMORY CONTENT        \n");
+    printf("___________________________\n");
+    while (mem_pointer != NULL)
+    {
+        printf("| Addr:           \b %d \b\n", mem_pointer);
+        printf("| size:           \b %d \b\n", mem_pointer->size);
+        printf("| is Allocated:   \b %d \b\n", mem_pointer->is_alloc);
+        printf("| next's address: \b %d \b\n", mem_pointer->next);
+        printf("___________________________\n");    
 
+        mem_pointer = mem_pointer->next;
+    }
+    printf("___________________________\n");    
 }
 
 int sbmem_close()
