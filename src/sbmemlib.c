@@ -5,7 +5,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <math.h>
-
+#include <semaphore.h>
+ 
 // Define a name for your shared memory; you can give any name that start with a slash character; it will be like a filename.
 #define MBMEM_NAME "/sbmemlib"
 #define MIN_SEG_SIZE 32000
@@ -20,6 +21,7 @@
         exit(EXIT_FAILURE); \
     } while (0);
 
+sem_t semaphore;
 // Define semaphore(s)
 struct Head *find_buddy(struct Head *block);
 
@@ -32,22 +34,20 @@ struct Head
     struct Head *next;
 };
 
+struct SharedMemInfo
+{
+    int size;
+    sem_t semaphore;
+};
+
 int *pointerToSharedSegment = NULL;
-int sizeOfSharedSegment = 0;
+struct SharedMemInfo *info;
 
 /* Checks if the given number is a power of 2 */
 int is_pow2(int val)
 {
     return (val != 0) && ((val & (val - 1)) == 0);
 }
-
-/* Returns the smallest power of 2 greater than the given number */
-int next_pow2(int val)
-{
-    int pos = ceil(log2(val));
-    return pow(2, pos);
-}
-
 
 int sbmem_init(int segmentsize)
 {
@@ -58,52 +58,35 @@ int sbmem_init(int segmentsize)
         errExit("[-] Segment size must be between 32KB and 256KB.\n");
 
     int shm_fd = shm_open(MBMEM_NAME, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-
     if (shm_fd == -1)
-    {
         errExit("An error occured while creating shared memory");
-    }
 
-    int res = ftruncate(shm_fd, segmentsize + sizeof(int));
-    if (res != 0)
-    {
+    if (ftruncate(shm_fd, segmentsize + sizeof(struct SharedMemInfo)) != 0)
         errExit("An error occured while creating shared memory");
-    }
 
-    int *sizeOfSegment = (int *) mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    void *info_and_head = mmap(0, sizeof(struct Head) + sizeof(struct SharedMemInfo), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (info_and_head == MAP_FAILED)
+        errExit("An error occured mmapping shared memory");
+
+    ((struct SharedMemInfo*)info_and_head)->size = segmentsize;
+    sem_init(&((struct SharedMemInfo*)info_and_head)->semaphore, 1, 1);
+
+    info_and_head = (char *)info_and_head + sizeof(struct SharedMemInfo);
     
-    if (sizeOfSegment == MAP_FAILED)
-    {
-        errExit("An error occured mmapping shared memory");
-    }
+    ((struct Head *)info_and_head)->is_alloc = 0;
+    ((struct Head *)info_and_head)->size = segmentsize;
+    ((struct Head *)info_and_head)->next = NULL;
 
-    *sizeOfSegment = segmentsize;
-
-    int *head = (int *) mmap(0, sizeof(struct Head) + sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-
-    if (head == MAP_FAILED)
-    {
-        errExit("An error occured mmapping shared memory");
-    }
-
-    head += 1;
-    ((struct Head *)head)->is_alloc = 0;
-    ((struct Head *)head)->size = segmentsize;
-    ((struct Head *)head)->next = NULL;
-
-    // printf("head information set to: %d, %d \n", head->is_alloc, head->size);
-
-    printf("sbmem init called"); // remove all printfs when you are submitting to us.
     return (0);
 }
 
 int sbmem_remove()
 {
+    sem_destroy(&info->semaphore);
     if (shm_unlink(MBMEM_NAME) == -1) { 
         errExit("An error occured while unlinking the shared memory!");
     }
-
-    // TODO delete all semaphores used!!!
+    
     return (0);
 }
 
@@ -116,26 +99,27 @@ int sbmem_open()
         errExit("An error occured while creating shared memory");
 
     // Map and read the size information of shared memory
-    int *sizeOfSegment = (int *) mmap(0, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    info = mmap(0, sizeof(struct SharedMemInfo), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
    
-    if (sizeOfSegment == MAP_FAILED)
+    if (info == MAP_FAILED)
         errExit("An error occured mmapping shared memory");
 
     // Map the whole shared memory
-    sizeOfSharedSegment = *sizeOfSegment;
-    pointerToSharedSegment = (int*) mmap(0, sizeOfSharedSegment + sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    pointerToSharedSegment = mmap(0, info->size + sizeof(struct SharedMemInfo), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 
     if (pointerToSharedSegment == MAP_FAILED)
         errExit("An error occured mmapping shared memory");
 
-    printf("The whole shared block size: %d \n", *pointerToSharedSegment);
-    pointerToSharedSegment += 1;
-    printf("Block info: %d, %d \n",  ((struct Head*) pointerToSharedSegment)->is_alloc, ((struct Head*) pointerToSharedSegment)->size);
+    // Move the pointer so that it points to the begining of the block    
+    pointerToSharedSegment = (char *)pointerToSharedSegment + sizeof(struct SharedMemInfo);
+
     return (0);
 }
 
 void *sbmem_alloc(int size)
 {   
+    sem_wait(&info->semaphore);
+
     size += sizeof(struct Head);
     printf("Trying to allocate: %d\n", size);
 
@@ -143,7 +127,7 @@ void *sbmem_alloc(int size)
     void *ptr = NULL;
 
     do
-    {
+    {   // Find a suitable block and split blocks accordingly
         if ((tmpPointer->size/2) >= size && tmpPointer->is_alloc == 0){
             split_chunck(tmpPointer);
         } else if (tmpPointer->is_alloc == 1 || tmpPointer->size < size) {
@@ -156,6 +140,8 @@ void *sbmem_alloc(int size)
     } while (tmpPointer != NULL);
 
     print_memory();
+
+    sem_post(&info->semaphore);
     return (ptr);
 }
 
@@ -164,6 +150,8 @@ void *sbmem_alloc(int size)
  */
 void sbmem_free(void *p)
 {
+    sem_wait(&info->semaphore);
+
     // printf("Frying P = %d of size %d \n", p, ((struct Head *)p)[-1].size);
     struct Head *block = ((struct Head *)p)-1;
     block->is_alloc = 0;
@@ -174,7 +162,9 @@ void sbmem_free(void *p)
         // Merge buddy
         merge_buddies(buddy, block);
     }
+
     print_memory();
+    sem_post(&info->semaphore);
 }
 
 /**
@@ -257,6 +247,6 @@ void print_memory(){
 
 int sbmem_close()
 {
-
+    munmap(pointerToSharedSegment - sizeof(struct SharedMemInfo), info->size + sizeof(int));
     return (0);
 }

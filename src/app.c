@@ -40,8 +40,10 @@ int main()
         printf("Could not allocate! \n");
         exit(1);
     }
+    t = sbmem_alloc(256-16); // allocate space to hold 1024 characters
 
     sbmem_close();
+
 
     return (0);
 }
