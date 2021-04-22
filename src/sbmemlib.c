@@ -26,12 +26,12 @@ struct Head *merge_buddies(struct Head *buddy1, struct Head *buddy2);
 void split_chunck(struct Head *left_chunck);
 void print_memory();
 int is_pow2(int val);
+struct Head *get_next(struct Head * cur);
 
 // STRUCTURES
 struct Head {
     int is_alloc;
     int size;
-    struct Head *next;
 };
 
 struct SharedMemInfo {
@@ -63,13 +63,14 @@ int sbmem_init(int segmentsize) {
         errExit("An error occured mmapping shared memory");
 
     ((struct SharedMemInfo*)info_and_head)->size = segmentsize;
-    sem_init(&((struct SharedMemInfo*)info_and_head)->semaphore, 1, 1);
+
+    int ret = sem_init(&(((struct SharedMemInfo*)info_and_head)->semaphore), 1, 1);
+    printf("sem_init return: %d ", ret);
 
     info_and_head = (char *)info_and_head + sizeof(struct SharedMemInfo);
     
     ((struct Head *)info_and_head)->is_alloc = 0;
     ((struct Head *)info_and_head)->size = segmentsize;
-    ((struct Head *)info_and_head)->next = NULL;
 
     return (0);
 }
@@ -109,20 +110,19 @@ int sbmem_open() {
 }
 
 void *sbmem_alloc(int size) {
-    sem_wait(&info->semaphore);
-    printf("semaphore return: %d", info->semaphore);
-    size += sizeof(struct Head);
-    printf("Trying to allocate: %d\n", size);
+    sem_wait(&(info->semaphore));
 
+    size += sizeof(struct Head);
+    
     struct Head *tmpPointer = ((struct Head *) pointerToSharedSegment);
     void *ptr = NULL;
-
+    
     do
     {   // Find a suitable block and split blocks accordingly
         if ((tmpPointer->size/2) >= size && tmpPointer->is_alloc == 0){
             split_chunck(tmpPointer);
         } else if (tmpPointer->is_alloc == 1 || tmpPointer->size < size) {
-            tmpPointer = tmpPointer->next;
+            tmpPointer = get_next(tmpPointer);
         } else {
             tmpPointer->is_alloc = 1;
             ptr = tmpPointer + 1;
@@ -132,7 +132,7 @@ void *sbmem_alloc(int size) {
 
     print_memory();
 
-    sem_post(&info->semaphore);
+    sem_post(&(info->semaphore));
     return (ptr);
 }
 
@@ -143,7 +143,7 @@ void sbmem_free(void *p) {
     if (p == NULL)
         return;
 
-    sem_wait(&info->semaphore);
+    sem_wait(&(info->semaphore));
 
     // printf("Frying P = %d of size %d \n", p, ((struct Head *)p)[-1].size);
     struct Head *block = ((struct Head *)p)-1;
@@ -158,7 +158,7 @@ void sbmem_free(void *p) {
     }
 
     print_memory();
-    sem_post(&info->semaphore);
+    sem_post(&(info->semaphore));
 }
 
 int sbmem_close() {
@@ -205,23 +205,17 @@ struct Head *merge_buddies(struct Head *buddy1, struct Head *buddy2) {
         buddy_right = buddy1;
     }
 
-    buddy_left->next = buddy_right->next;
     buddy_left->size += buddy_right->size;
 
     return buddy_left;
 }
 
 void split_chunck(struct Head *left_chunck) {
-    // printf("\n\nAT SPLIT\n\n");
-    // printf("Before splitting: size: %d, begin: %d, next, %d \n", left_chunck->size, left_chunck, left_chunck->next);
-
     struct Head *buddy_begin = left_chunck + (left_chunck->size / 2)/sizeof(struct Head);
     buddy_begin->size = left_chunck->size / 2;
     buddy_begin->is_alloc = 0;
-    buddy_begin->next = left_chunck->next;
 
     left_chunck->size = left_chunck->size / 2;
-    left_chunck->next = buddy_begin;
 
     // printf("After Splitting: \n");
     // printf("Left : size: %d, begin: %d, next, %d \n", left_chunck->size, left_chunck, left_chunck->next);
@@ -239,10 +233,10 @@ void print_memory() {
         printf("| Addr:           \b %d \b\n", mem_pointer);
         printf("| size:           \b %d \b\n", mem_pointer->size);
         printf("| is Allocated:   \b %d \b\n", mem_pointer->is_alloc);
-        printf("| next's address: \b %d \b\n", mem_pointer->next);
+        printf("| next's address2: \b %d \b\n", get_next(mem_pointer));
         printf("___________________________\n");    
 
-        mem_pointer = mem_pointer->next;
+        mem_pointer = get_next(mem_pointer);
     }
     printf("___________________________\n");    
 }
@@ -252,4 +246,12 @@ void print_memory() {
  * */
 int is_pow2(int val) {
     return (val != 0) && ((val & (val - 1)) == 0);
+}
+
+struct Head *get_next(struct Head * cur) {
+    struct Head *next = (char *)cur + cur->size;
+    if (next < ((char *)pointerToSharedSegment) + info->size)
+        return next;
+    else
+        return NULL;
 }
