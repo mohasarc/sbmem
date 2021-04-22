@@ -51,27 +51,27 @@ struct SharedMemInfo *info;
  * */
 int sbmem_init(int segmentsize) {
     if (!is_pow2(segmentsize))
-        errExit("[-] Segment size must be a power of 2.\n");
+        return (-1);
 
     if (segmentsize > MAX_SEG_SIZE || segmentsize < MIN_SEG_SIZE)
-        errExit("[-] Segment size must be between 32KB and 256KB.\n");
+        return (-1);
 
     int shm_fd = shm_open(MBMEM_NAME, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
     if (shm_fd == -1)
-        errExit("An error occured while creating shared memory");
+        return (-1);
 
     if (ftruncate(shm_fd, segmentsize + sizeof(struct SharedMemInfo)) != 0)
-        errExit("An error occured while creating shared memory");
+        return (-1);
 
     void *info_and_head = mmap(0, sizeof(struct Head) + sizeof(struct SharedMemInfo), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
     if (info_and_head == MAP_FAILED)
-        errExit("An error occured mmapping shared memory");
+        return (-1);
 
     ((struct SharedMemInfo*)info_and_head)->size = segmentsize;
 
     int ret = sem_init(&(((struct SharedMemInfo*)info_and_head)->semaphore), 1, 1);
     if (ret != 0)
-        errExit("Failed creating a semaphore");
+        return (-1);
 
     info_and_head = (char *)info_and_head + sizeof(struct SharedMemInfo);
     
@@ -87,7 +87,7 @@ int sbmem_init(int segmentsize) {
 int sbmem_remove() {
     sem_destroy(&info->semaphore);
     if (shm_unlink(MBMEM_NAME) == -1) { 
-        errExit("An error occured while unlinking the shared memory!");
+            return (-1);
     }
     
     return (0);
@@ -102,19 +102,19 @@ int sbmem_open() {
     int shm_fd = shm_open(MBMEM_NAME, O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
     
     if (shm_fd == -1) 
-        errExit("An error occured while creating shared memory");
+        return (-1);
 
     // Map and read the size information of shared memory
     info = mmap(0, sizeof(struct SharedMemInfo), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
    
     if (info == MAP_FAILED)
-        errExit("An error occured mmapping shared memory");
+        return (-1);
 
     // Map the whole shared memory
     pointerToSharedSegment = mmap(0, info->size + sizeof(struct SharedMemInfo), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 
     if (pointerToSharedSegment == MAP_FAILED)
-        errExit("An error occured mmapping shared memory");
+        return (-1);
 
     // Move the pointer so that it points to the begining of the block    
     pointerToSharedSegment = (int *)((char *)pointerToSharedSegment + sizeof(struct SharedMemInfo));
