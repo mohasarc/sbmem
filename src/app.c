@@ -9,13 +9,14 @@
 int main()
 {
 
-    int i, ret;
+    // int i;
+    int ret;
     char *p;
     char *q;
-    char *r;
-    char *s;
-    char *t;
-    char *u;
+    // char *r;
+    // char *s;
+    // char *t;
+    // char *u;
 
     printf("Calling sbmem_open\n");
     ret = sbmem_open();

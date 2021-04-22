@@ -70,6 +70,8 @@ int sbmem_init(int segmentsize) {
     ((struct SharedMemInfo*)info_and_head)->size = segmentsize;
 
     int ret = sem_init(&(((struct SharedMemInfo*)info_and_head)->semaphore), 1, 1);
+    if (ret != 0)
+        errExit("Failed creating a semaphore");
 
     info_and_head = (char *)info_and_head + sizeof(struct SharedMemInfo);
     
@@ -115,7 +117,7 @@ int sbmem_open() {
         errExit("An error occured mmapping shared memory");
 
     // Move the pointer so that it points to the begining of the block    
-    pointerToSharedSegment = (char *)pointerToSharedSegment + sizeof(struct SharedMemInfo);
+    pointerToSharedSegment = (int *)((char *)pointerToSharedSegment + sizeof(struct SharedMemInfo));
 
     return (0);
 }
@@ -149,7 +151,7 @@ void *sbmem_alloc(int size) {
         }
     } while (tmpPointer != NULL);
 
-    print_memory();
+    // print_memory();
 
     sem_post(&(info->semaphore));
     return (ptr);
@@ -253,10 +255,10 @@ void print_memory() {
     printf("___________________________\n");
     while (mem_pointer != NULL)
     {
-        printf("| Addr:           \b %d \b\n", mem_pointer);
+        printf("| Addr:           \b %p \b\n", mem_pointer);
         printf("| size:           \b %d \b\n", mem_pointer->size);
         printf("| is Allocated:   \b %d \b\n", mem_pointer->is_alloc);
-        printf("| next's address2: \b %d \b\n", get_next(mem_pointer));
+        printf("| next's address2: \b %p \b\n", get_next(mem_pointer));
         printf("___________________________\n");    
 
         mem_pointer = get_next(mem_pointer);
@@ -276,8 +278,8 @@ int is_pow2(int val) {
  * @return Pointer to the address of the next block or NULL if the isn't any
  * */
 struct Head *get_next(struct Head * cur) {
-    struct Head *next = (char *)cur + cur->size;
-    if (next < ((char *)pointerToSharedSegment) + info->size)
+    struct Head *next = (struct Head *)((char *)cur + cur->size);
+    if (next < (struct Head *)(((char *)pointerToSharedSegment) + info->size))
         return next;
     else
         return NULL;
