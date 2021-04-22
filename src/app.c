@@ -18,10 +18,14 @@ int main()
 
     for (int i = 0; i < 10; i++){
         printf("Requesting == %d\n", size_to_allocate);
-        p = sbmem_alloc(size_to_allocate); // allocate space to hold 1024 characters
+        p = sbmem_alloc(size_to_allocate);
         size_to_allocate += 100;
     }
-  
+
+    for (int i = 0; i < 10; i++){
+        sbmem_free(p);
+    }
+
     sbmem_close();
     return (0);
 }
