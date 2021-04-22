@@ -44,6 +44,11 @@ int *pointerToSharedSegment = NULL;
 struct SharedMemInfo *info;
 
 // IMPLEMENTATION 
+
+/**
+ * Used to initialize the library (called only once)
+ * @param segmentSize The desired size of the shared memory
+ * */
 int sbmem_init(int segmentsize) {
     if (!is_pow2(segmentsize))
         errExit("[-] Segment size must be a power of 2.\n");
@@ -65,7 +70,6 @@ int sbmem_init(int segmentsize) {
     ((struct SharedMemInfo*)info_and_head)->size = segmentsize;
 
     int ret = sem_init(&(((struct SharedMemInfo*)info_and_head)->semaphore), 1, 1);
-    printf("sem_init return: %d ", ret);
 
     info_and_head = (char *)info_and_head + sizeof(struct SharedMemInfo);
     
@@ -75,6 +79,9 @@ int sbmem_init(int segmentsize) {
     return (0);
 }
 
+/**
+ * To dealocate the shared memory (called only once)
+ * */
 int sbmem_remove() {
     sem_destroy(&info->semaphore);
     if (shm_unlink(MBMEM_NAME) == -1) { 
@@ -84,6 +91,10 @@ int sbmem_remove() {
     return (0);
 }
 
+/**
+ * To map the shared memory to the processes's virtual adrees
+ * (called once per process)
+ * */
 int sbmem_open() {
     // Open shared memory
     int shm_fd = shm_open(MBMEM_NAME, O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
@@ -109,6 +120,14 @@ int sbmem_open() {
     return (0);
 }
 
+/**
+ * Allocates the desired amount of memory using 
+ * buddy allocation algorithm
+ * @param size The size of the memory wanted
+ * @return A pointer to the address of the 
+ *         memory allocated or NULL if allocation 
+ *         is not possible
+ * */
 void *sbmem_alloc(int size) {
     sem_wait(&(info->semaphore));
 
@@ -137,7 +156,8 @@ void *sbmem_alloc(int size) {
 }
 
 /**
- * 
+ * Frees the memory allocated
+ * @param p A pointer to the begining of the allocated memory
  */
 void sbmem_free(void *p) {
     if (p == NULL)
@@ -157,7 +177,7 @@ void sbmem_free(void *p) {
         buddy = find_buddy(block);
     }
 
-    print_memory();
+    // print_memory();
     sem_post(&(info->semaphore));
 }
 
@@ -210,18 +230,21 @@ struct Head *merge_buddies(struct Head *buddy1, struct Head *buddy2) {
     return buddy_left;
 }
 
-void split_chunck(struct Head *left_chunck) {
-    struct Head *buddy_begin = left_chunck + (left_chunck->size / 2)/sizeof(struct Head);
-    buddy_begin->size = left_chunck->size / 2;
-    buddy_begin->is_alloc = 0;
+/**
+ * Splits a memory block in half
+ * @param block The memory block to be splitted
+ * */
+void split_chunck(struct Head *block) {
+    struct Head *buddy = block + (block->size / 2)/sizeof(struct Head);
+    buddy->size = block->size / 2;
+    buddy->is_alloc = 0;
 
-    left_chunck->size = left_chunck->size / 2;
-
-    // printf("After Splitting: \n");
-    // printf("Left : size: %d, begin: %d, next, %d \n", left_chunck->size, left_chunck, left_chunck->next);
-    // printf("Right: size: %d, begin: %d, next, %d \n\n", buddy_begin->size, buddy_begin, buddy_begin->next);
+    block->size = block->size / 2;
 }
 
+/**
+ * Prints the memory contents
+ * */
 void print_memory() {
     struct Head *mem_pointer = (struct Head *) pointerToSharedSegment;
     
@@ -248,6 +271,10 @@ int is_pow2(int val) {
     return (val != 0) && ((val & (val - 1)) == 0);
 }
 
+/**
+ * Calculated the address of the next block
+ * @return Pointer to the address of the next block or NULL if the isn't any
+ * */
 struct Head *get_next(struct Head * cur) {
     struct Head *next = (char *)cur + cur->size;
     if (next < ((char *)pointerToSharedSegment) + info->size)
