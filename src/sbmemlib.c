@@ -22,7 +22,7 @@
 
 // FUNCTIONS' PROTOTYPES
 struct Head *find_buddy(struct Head *block);
-void merge_buddies(struct Head *buddy1, struct Head *buddy2);
+struct Head *merge_buddies(struct Head *buddy1, struct Head *buddy2);
 void split_chunck(struct Head *left_chunck);
 void print_memory();
 int is_pow2(int val);
@@ -110,7 +110,7 @@ int sbmem_open() {
 
 void *sbmem_alloc(int size) {
     sem_wait(&info->semaphore);
-
+    printf("semaphore return: %d", info->semaphore);
     size += sizeof(struct Head);
     printf("Trying to allocate: %d\n", size);
 
@@ -140,6 +140,9 @@ void *sbmem_alloc(int size) {
  * 
  */
 void sbmem_free(void *p) {
+    if (p == NULL)
+        return;
+
     sem_wait(&info->semaphore);
 
     // printf("Frying P = %d of size %d \n", p, ((struct Head *)p)[-1].size);
@@ -148,9 +151,10 @@ void sbmem_free(void *p) {
 
     // Find buddy
     struct Head *buddy = find_buddy(block);
-    if (buddy->is_alloc != 1 && buddy->size == block->size){
+    while (buddy->is_alloc != 1 && buddy->size == block->size){
         // Merge buddy
-        merge_buddies(buddy, block);
+        block = merge_buddies(buddy, block);
+        buddy = find_buddy(block);
     }
 
     print_memory();
@@ -177,7 +181,7 @@ struct Head *find_buddy(struct Head *block) {
     if (((char *)block - (char *)pointerToSharedSegment) % (long)pow(2, size_class + 1) == 0){
         return (struct Head *)((char *)block + block->size);
     } else {
-        return (struct Head *)(char *)block - block->size;
+        return (struct Head *)((char *)block - block->size);
     }
 }
 
@@ -186,8 +190,9 @@ struct Head *find_buddy(struct Head *block) {
  * one larger block (buddies).
  * @param buddy1 The first block
  * @param buddy2 The second block
+ * @return The new merged block
  */
-void merge_buddies(struct Head *buddy1, struct Head *buddy2) {
+struct Head *merge_buddies(struct Head *buddy1, struct Head *buddy2) {
     int size_class = log2(buddy1->size);
     struct Head *buddy_left;
     struct Head *buddy_right;
@@ -202,6 +207,8 @@ void merge_buddies(struct Head *buddy1, struct Head *buddy2) {
 
     buddy_left->next = buddy_right->next;
     buddy_left->size += buddy_right->size;
+
+    return buddy_left;
 }
 
 void split_chunck(struct Head *left_chunck) {
